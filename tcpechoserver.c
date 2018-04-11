@@ -44,12 +44,7 @@ void *recv_msg(void *arg)
         cmd[3] = '\0';
 
         char *filename = (char*) malloc(sizeof(char)*100);
-        strcpy(filename, startline);
-        strsep(&filename, " ");
-        // strcpy(filename, strsep(&filename, " "));
-        // strcpy(filename, strsep(&filename, "/"));
 
-        printf("%s\n", filename);
         
         if (strcmp(cmd, "GET") != 0)
         {
@@ -98,6 +93,4 @@ int main(int argc, char **argv)
         exit(1);
     }
     while(1);
-
-    close(clientsocket);
 }
