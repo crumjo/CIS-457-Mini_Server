@@ -9,49 +9,62 @@
 #include <errno.h>
 #include <time.h>
 
-struct http_response_header
+int http_message(int clientsocket, char *startline, char *filename, char *response_type)
 {
-    char start[100];
-    char date[100];
+    char *response = (char*) malloc(sizeof(char)*5000);
 
-};
+    strcpy(response, "HTTP/1.1 200 OK\n");
+    strcat(response, "Connection: keep-alive");
+    strcat(response, "Date: Sun, 18 Oct 2009 08:56:53 GMT\n");
+    strcat(response, "Last-Modified: Sat, 20 Nov 2004 07:16:26 GMT\n");
+    strcat(response, "Content-Length: 44\n");
+    strcat(response, "Content-Type: text/html\n\n");
+    strcat(response, "<html><body><h1>It works!</h1></body></html>");
+
+    send(clientsocket, response, 5000, 0);
+    return 1;
+}
 
 
 void *recv_msg(void *arg)
 {
     char *line = (char*) malloc(sizeof(char)*5000);
     int clientsocket = *((int *)arg);
-    struct http_response_header *response = (struct http_response_header*)malloc(sizeof(struct http_response_header));
-
     while (1)
     {
-        line = "";
-
-        if (recv(clientsocket, line, 5000, 0) < 0)
-        {
-            break;
-        };
+        recv(clientsocket, line, 5000, 0);
+        
         printf("\n%s\n", line);
         
-        char startline [5000];
+        char startline [100];
         strcpy(startline, strsep(&line, "\n"));
-        printf("%s\n", startline);
-        
+
         char cmd [4];
         memcpy(&cmd, &startline, 3);
         cmd[3] = '\0';
 
+        char *filename = (char*) malloc(sizeof(char)*100);
+        strcpy(filename, startline);
+        strsep(&filename, " ");
+        // strcpy(filename, strsep(&filename, " "));
+        // strcpy(filename, strsep(&filename, "/"));
+
+        printf("%s\n", filename);
         
         if (strcmp(cmd, "GET") != 0)
         {
-            //SEND 501 MESSAGE BACK TO CLIENT
+            http_message(clientsocket, startline, "", "501");
+        }
+        else if (fopen(filename, "rb") < 0)
+        {
+            http_message(clientsocket, startline, filename, "404");
         }
         else
         {
-
+            http_message(clientsocket, startline, filename, "200");
         }
     }
-    free(line);
+    printf("exiting thread\n");
     return arg;
 }
 
@@ -84,14 +97,7 @@ int main(int argc, char **argv)
         fprintf(stderr, "Thread create error %d: %s\n", status, strerror(status));
         exit(1);
     }
-
-    while (1)
-    {
-        printf("Enter a line: ");
-        char line[5000];
-        fgets(line, 5000, stdin);
-        send(clientsocket, line, strlen(line) + 1, 0);
-    }
+    while(1);
 
     close(clientsocket);
 }
