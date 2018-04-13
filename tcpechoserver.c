@@ -9,54 +9,161 @@
 #include <errno.h>
 #include <time.h>
 
-int http_message(int clientsocket, char *startline, char *filename, char *response_type)
-{
-    char *response = (char*) malloc(sizeof(char)*5000);
+#define FNAME_START 5
 
-    strcpy(response, "HTTP/1.1 200 OK\n");
-    strcat(response, "Connection: keep-alive");
+// int http_message(int clientsocket, char *startline, char *filename, char *response_type)
+// {
+//     char *response = (char *)malloc(sizeof(char) * 5000);
+
+//     strcpy(response, "HTTP/1.1 200 OK\n");
+//     strcat(response, "Connection: keep-alive\n");
+//     strcat(response, "Date: Sun, 18 Oct 2009 08:56:53 GMT\n");
+//     strcat(response, "Last-Modified: Sat, 20 Nov 2004 07:16:26 GMT\n");
+//     strcat(response, "Content-Length: 44\n");
+//     strcat(response, "Content-Type: text/html\n\n");
+//     strcat(response, "<html><body><h1>It works!</h1></body></html>");
+
+//     //printf("Message:\n-----------------\n%s\n-----------------\n", response);
+
+//     send(clientsocket, response, 5000, 0);
+//     return strlen(response);
+// }
+
+int http_message(int clientsocket, int code, int connect, char *d_last_mod, char *con_type)
+{
+    char *response = (char *)malloc(sizeof(char) * 5000);
+    char *code_msg = (char *)malloc(sizeof(char) * 24);
+    char *connect_msg = (char *)malloc(sizeof(char) * 16);
+    char *print_browser = (char *)malloc(sizeof(char) * 45);
+    int tmp_len = 0;
+
+    if (code == 200)
+    {
+        code_msg = "200 OK\n";
+        print_browser = "<html><body><h1>It works!</h1></body></html>";
+    }
+    else if (code == 404)
+    {
+        code_msg = "404 Not Found\n";
+        print_browser = "<html><body><h1>404 Not Found.</h1></body></html>";
+    }
+    else if (code == 501)
+    {
+        code_msg = "501 Not Implemented\n";
+        print_browser = "<html><body><h1>501 Not Implemented.</h1></body></html>";
+    }
+
+    char len[3];
+    tmp_len = strlen(print_browser);
+    sprintf(len, "%d", tmp_len);
+    //printf("<<<Length: %s>>>\n\n", len);
+
+    if (connect == 1)
+    {
+        connect_msg = "keep-alive\n";
+    }
+    else
+    {
+        connect_msg = "close\n";
+    }
+
+    strcpy(response, "HTTP/1.1 ");
+    strcat(response, code_msg);
+    strcat(response, "Connection: ");
+    strcat(response, connect_msg);
+
+    //these need to be replaced later
     strcat(response, "Date: Sun, 18 Oct 2009 08:56:53 GMT\n");
     strcat(response, "Last-Modified: Sat, 20 Nov 2004 07:16:26 GMT\n");
-    strcat(response, "Content-Length: 44\n");
+
+    strcat(response, "Content-Length: ");
+    strcat(response, len);
+    strcat(response, "\n");
+
+    //update this based on file extension: text/html, image/jpeg, text/plain, application/pdf
     strcat(response, "Content-Type: text/html\n\n");
-    strcat(response, "<html><body><h1>It works!</h1></body></html>");
+
+    strcat(response, code_msg);
+
+    printf("Message:\n-----------------\n%s\n-----------------\n", response);
 
     send(clientsocket, response, 5000, 0);
-    return 1;
-}
 
+    return tmp_len;
+}
 
 void *recv_msg(void *arg)
 {
-    char *line = (char*) malloc(sizeof(char)*5000);
+    char *line = (char *)malloc(sizeof(char) * 5000);
     int clientsocket = *((int *)arg);
     while (1)
     {
         recv(clientsocket, line, 5000, 0);
-        
+
         printf("\n%s\n", line);
-        
-        char startline [100];
+
+        char startline[100];
         strcpy(startline, strsep(&line, "\n"));
 
-        char cmd [4];
+        char cmd[4];
         memcpy(&cmd, &startline, 3);
         cmd[3] = '\0';
 
-        char *filename = (char*) malloc(sizeof(char)*100);
+        char *filename = (char *)malloc(sizeof(char) * 100);
 
-        
-        if (strcmp(cmd, "GET") != 0)
+        // if (strcmp(cmd, "GET") != 0)
+        // {
+        //     http_message(clientsocket, startline, "", "501");
+        // }
+        // else if (fopen(filename, "rb") < 0)
+        // {
+        //     http_message(clientsocket, startline, filename, "404");
+        // }
+        // else
+        // {
+        //     http_message(clientsocket, startline, filename, "200");
+        // }
+
+        if (strcmp(cmd, "GET") == 0)
         {
-            http_message(clientsocket, startline, "", "501");
+            /* Check if requesting a file or not. */
+            char file_check[2];
+            memcpy(file_check, startline + FNAME_START, 1);
+
+            if (strcmp(file_check, " ") == 0)
+            {
+                //http_message(clientsocket, startline, filename, "200");
+                http_message(clientsocket, 200, 1, "fixme", "fixme");
+                printf("No file requested.\n");
+            }
+
+            /* Get name of file. */
+            char get_fname[strlen(startline)];
+            memcpy(get_fname, startline + FNAME_START, strlen(startline) - FNAME_START);
+            strtok(get_fname, " ");
+
+            /* Check if file exists. */
+            if (access(get_fname, F_OK) != -1)
+            {
+                /* File exists. */
+                printf("File found.\n");
+                //http_message(clientsocket, startline, get_fname, "200");
+                http_message(clientsocket, 200, 1, "fixme", "fixme");
+            }
+
+            /* File does not exist */
+            else
+            {
+                printf("File not found.\n");
+                //http_message(clientsocket, startline, filename, "404");
+                http_message(clientsocket, 404, 1, "fixme", "fixme");
+            }
         }
-        else if (fopen(filename, "rb") < 0)
-        {
-            http_message(clientsocket, startline, filename, "404");
-        }
+
+        /* Not implemented. */
         else
         {
-            http_message(clientsocket, startline, filename, "200");
+            http_message(clientsocket, 501, 1, "fixme", "fixme");
         }
     }
     printf("exiting thread\n");
@@ -92,5 +199,6 @@ int main(int argc, char **argv)
         fprintf(stderr, "Thread create error %d: %s\n", status, strerror(status));
         exit(1);
     }
-    while(1);
+    while (1)
+        ;
 }
