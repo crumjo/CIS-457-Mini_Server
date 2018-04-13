@@ -34,7 +34,7 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
     char *response = (char *)malloc(sizeof(char) * 5000);
     char *code_msg = (char *)malloc(sizeof(char) * 24);
     char *connect_msg = (char *)malloc(sizeof(char) * 16);
-    char *print_browser = (char *)malloc(sizeof(char) * 45);
+    char *print_browser = (char *)malloc(sizeof(char) * 128);
     int tmp_len = 0;
 
     if (code == 200)
@@ -83,7 +83,7 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
     //update this based on file extension: text/html, image/jpeg, text/plain, application/pdf
     strcat(response, "Content-Type: text/html\n\n");
 
-    strcat(response, code_msg);
+    strcat(response, print_browser);
 
     printf("Message:\n-----------------\n%s\n-----------------\n", response);
 
@@ -109,7 +109,7 @@ void *recv_msg(void *arg)
         memcpy(&cmd, &startline, 3);
         cmd[3] = '\0';
 
-        char *filename = (char *)malloc(sizeof(char) * 100);
+        // char *filename = (char *)malloc(sizeof(char) * 100);
 
         // if (strcmp(cmd, "GET") != 0)
         // {
@@ -172,13 +172,45 @@ void *recv_msg(void *arg)
 
 int main(int argc, char **argv)
 {
-    int port, status;
-    char cp_num[16];
+    if (argc > 7)
+    {
+        printf("Enter 3 arguments only:-p, -docroot, and/or -logfile.\n");
+        return 1;
+    }
+
+    int port = 8080;
+    int docroot_spec = 0; //check if docroot has been specified, can use in 'if' statement when choosing docroot
+    char *dir = (char *)malloc(128 * sizeof(char)); //no free for this yet
+    FILE *log_file;
+
+    for (int i = 1; i < argc; i++)
+    {
+        if (strcmp(argv[i], "-p") == 0)
+        {
+            port = atoi(argv[i + 1]);
+        }
+        else if (strcmp(argv[i], "-docroot") == 0)
+        {
+            dir = argv[i + 1];
+            docroot_spec = 1;
+            printf("Using directory: %s\n", dir);
+        }
+        else if (strcmp(argv[i], "-logfile") == 0)
+        {
+            log_file = fopen(argv[i + 1], "w");
+            printf("Printing to logfile %s\n", argv[i + 1]);      
+        }
+    }
+
+    printf("Listening on port %d\n", port);
+
+    int status;
+    //char cp_num[16];
     pthread_t recv;
 
-    printf("Enter a port number: ");
-    fgets(cp_num, 16, stdin);
-    port = atoi(cp_num);
+    // printf("Enter a port number: ");
+    // fgets(cp_num, 16, stdin);
+    // port = atoi(cp_num);
 
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
