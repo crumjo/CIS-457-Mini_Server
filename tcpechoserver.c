@@ -11,23 +11,6 @@
 
 #define FNAME_START 5
 
-// int http_message(int clientsocket, char *startline, char *filename, char *response_type)
-// {
-//     char *response = (char *)malloc(sizeof(char) * 5000);
-
-//     strcpy(response, "HTTP/1.1 200 OK\n");
-//     strcat(response, "Connection: keep-alive\n");
-//     strcat(response, "Date: Sun, 18 Oct 2009 08:56:53 GMT\n");
-//     strcat(response, "Last-Modified: Sat, 20 Nov 2004 07:16:26 GMT\n");
-//     strcat(response, "Content-Length: 44\n");
-//     strcat(response, "Content-Type: text/html\n\n");
-//     strcat(response, "<html><body><h1>It works!</h1></body></html>");
-
-//     //printf("Message:\n-----------------\n%s\n-----------------\n", response);
-
-//     send(clientsocket, response, 5000, 0);
-//     return strlen(response);
-// }
 
 int http_message(int clientsocket, int code, int connect, char *d_last_mod, char *con_type)
 {
@@ -39,18 +22,19 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
 
     if (code == 200)
     {
-        code_msg = "200 OK\n";
-        print_browser = "<html><body><h1>It works!</h1></body></html>";
+        code_msg = "200 OK\r\n";
+        
+        print_browser = "<html><body><h1>It works!</h1></body></html>\r\n";
     }
     else if (code == 404)
     {
-        code_msg = "404 Not Found\n";
-        print_browser = "<html><body><h1>404 Not Found.</h1></body></html>";
+        code_msg = "404 Not Found\r\n";
+        print_browser = "<html><body><h1>404 Not Found.</h1></body></html>\r\n";
     }
     else if (code == 501)
     {
-        code_msg = "501 Not Implemented\n";
-        print_browser = "<html><body><h1>501 Not Implemented.</h1></body></html>";
+        code_msg = "501 Not Implemented\r\n";
+        print_browser = "<html><body><h1>501 Not Implemented.</h1></body></html>\r\n";
     }
 
     char len[3];
@@ -60,11 +44,11 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
 
     if (connect == 1)
     {
-        connect_msg = "keep-alive\n";
+        connect_msg = "keep-alive\r\n";
     }
     else
     {
-        connect_msg = "close\n";
+        connect_msg = "close\r\n";
     }
 
     strcpy(response, "HTTP/1.1 ");
@@ -72,13 +56,17 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
     strcat(response, "Connection: ");
     strcat(response, connect_msg);
 
-    //these need to be replaced later
-    strcat(response, "Date: Sun, 18 Oct 2009 08:56:53 GMT\n");
-    strcat(response, "Last-Modified: Sat, 20 Nov 2004 07:16:26 GMT\n");
+    time_t t;
 
+    //these need to be replaced later
+    strcat(response, "Last-Modified: Sat, 20 Nov 2004 07:16:26 GMT\r\n");
+    strcat(response, "Date: Sun, 18 Oct 2009 08:56:53 GMT\r\n");
+    strcat(response, "Server: TristanJoes\r\n");
+    strcat(response, "Accept-range: bytes\r\n");
+    strcat(response, "Content-Type: text/html\r\n");
     strcat(response, "Content-Length: ");
     strcat(response, len);
-    strcat(response, "\n");
+    strcat(response, "\r\n");
 
     //update this based on file extension: text/html, image/jpeg, text/plain, application/pdf
     strcat(response, "Content-Type: text/html\n\n");
@@ -109,22 +97,8 @@ void *recv_msg(void *arg)
         memcpy(&cmd, &startline, 3);
         cmd[3] = '\0';
 
-        // char *filename = (char *)malloc(sizeof(char) * 100);
 
-        // if (strcmp(cmd, "GET") != 0)
-        // {
-        //     http_message(clientsocket, startline, "", "501");
-        // }
-        // else if (fopen(filename, "rb") < 0)
-        // {
-        //     http_message(clientsocket, startline, filename, "404");
-        // }
-        // else
-        // {
-        //     http_message(clientsocket, startline, filename, "200");
-        // }
-
-        if (strcmp(cmd, "GET") == 0)
+        if (strcmp(cmd, "GET") == 0 && strcmp(startline, "") != 0)
         {
             /* Check if requesting a file or not. */
             char file_check[2];
@@ -221,16 +195,16 @@ int main(int argc, char **argv)
 
     bind(sockfd, (struct sockaddr *)&serveraddr, sizeof(serveraddr));
     listen(sockfd, 10);
-
-    socklen_t len = sizeof(clientaddr);
-
-    int clientsocket = accept(sockfd, (struct sockaddr *)&clientaddr, &len);
-
-    if ((status = pthread_create(&recv, NULL, recv_msg, &clientsocket)) != 0)
-    {
-        fprintf(stderr, "Thread create error %d: %s\n", status, strerror(status));
-        exit(1);
-    }
     while (1)
-        ;
+    {
+        socklen_t len = sizeof(clientaddr);
+
+        int clientsocket = accept(sockfd, (struct sockaddr *)&clientaddr, &len);
+
+        if ((status = pthread_create(&recv, NULL, recv_msg, &clientsocket)) != 0)
+        {
+            fprintf(stderr, "Thread create error %d: %s\n", status, strerror(status));
+            exit(1);
+        }
+    }
 }
