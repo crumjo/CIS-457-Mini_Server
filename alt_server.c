@@ -55,15 +55,17 @@ void get_current_time(char *ret_str)
     free(format_date);
 }
 
-int http_message(int clientsocket, int code, int connect, char *d_last_mod, char *con_type, char *file_contents)
+int http_message(int clientsocket, int code, int connect, char *d_last_mod, char *con_type, char *file_contents, char *fname)
 {
     char *response = (char *)malloc(sizeof(char) * 5000);
     char *code_msg = (char *)malloc(sizeof(char) * 24);
     char *connect_msg = (char *)malloc(sizeof(char) * 16);
     char *print_browser = (char *)malloc(sizeof(char) * 1024);
-    char *content_type = (char *)malloc(sizeof(char) * 24);
+    char *content_type = (char *)malloc(sizeof(char) * 32);
     char *curr_time = (char *)malloc(sizeof(char) * 128);
     int tmp_len = 0;
+    char len[16];
+    FILE *pdf;
 
     if (code == 200)
     {
@@ -81,11 +83,6 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
         print_browser = "<html><body><h1>501 Not Implemented.</h1></body></html>";
     }
 
-    char len[6];
-    tmp_len = strlen(print_browser);
-    sprintf(len, "%d", tmp_len);
-    // printf("> Content Length: %s\n", len);
-
     if (connect)
     {
         connect_msg = "keep-alive\r\n";
@@ -100,7 +97,7 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
         content_type = "text/html\r\n";
     }
 
-    else if (strcmp(con_type, "text"))
+    else if (strcmp(con_type, "text") == 0)
     {
         content_type = "text/plain\r\n";
     }
@@ -112,15 +109,40 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
 
     else if (strcmp(con_type, "pdf") == 0)
     {
+        printf("Here 0\n");
+
         content_type = "application/pdf\r\n";
+
+        printf("Here 1\n");
+
+        pdf = fopen(fname, "rb");
+
+        printf("Here 2\n");
+
+        fseek(pdf, 0L, SEEK_END);
+
+        printf("Here 3\n");
+        int size = ftell(pdf);
+        printf("Here 5\n");
+        rewind(pdf);
+        printf("Here 6\n");
+        sprintf(len, "%d", size);
+        printf("Here 7\n");
+        fclose(pdf);
+        printf(">>>PDF SIZE: %s\n", len);
     }
 
     get_current_time(curr_time);
 
+    if (strcmp(con_type, "pdf") != 0)
+    {
+        tmp_len = strlen(print_browser);
+        sprintf(len, "%d", tmp_len);
+        // printf("> Content Length: %s\n", len);
+    }
+
     strcpy(response, "HTTP/1.1 ");
     strcat(response, code_msg);
-
-    //these need to be replaced later
     strcat(response, "Date: ");
     strcat(response, curr_time);
     strcat(response, "\r\n");
@@ -130,7 +152,16 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
     strcat(response, connect_msg);
     strcat(response, "Content-Type: ");
     strcat(response, con_type);
-    strcat(response, "\r\nContent-Length: ");
+    strcat(response, "\r\n");
+
+    if (strcmp(con_type, "pdf") == 0)
+    {
+        strcat(response, "Content-Disposition: attachment; filename=");
+        strcat(response, fname);
+        strcat(response, "\r\n");
+    }
+
+    strcat(response, "Content-Length: ");
     strcat(response, len);
     strcat(response, "\r\n");
 
@@ -145,10 +176,13 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
         strcat(response, "\n");
     }
 
-    strcat(response, print_browser);
-    strcat(response, "\r\n");
+    if (strcmp(con_type, "pdf") != 0)
+    {
+        strcat(response, print_browser);
+        strcat(response, "\r\n");
+    }
 
-    // printf("> Response:\n%s\n\n", response);
+    printf("> Response:\n%s\n\n", response);
 
     send(clientsocket, response, 7000, 0);
 
@@ -257,7 +291,7 @@ void *recv_msg(void *arg)
 
             if (strcmp(file_check, " ") == 0)
             {
-                http_message(clientsocket, 200, 1, "", "html", "<html><body><h1>Connection Successful.</h1></body></html>");
+                http_message(clientsocket, 200, 1, "", "html", "<html><body><h1>Connection Successful.</h1></body></html>", "");
                 // printf("No file requested.\n");
             }
 
@@ -287,7 +321,7 @@ void *recv_msg(void *arg)
                         read_file(get_fname, &file_buffer);
                         file_buffer[strlen(file_buffer) + 1] = '\n';
                         // printf("FILE CONTENTS: %s\n", file_buffer);
-                        http_message(clientsocket, 200, 1, date, "html", file_buffer);
+                        http_message(clientsocket, 200, 1, date, "html", file_buffer, "");
                         free(file_buffer);
                         free(date);
                     }
@@ -297,18 +331,39 @@ void *recv_msg(void *arg)
                         get_file_mod_date(get_fname, date);
                         char *file_buffer = malloc(sizeof(char));
                         read_file(get_fname, &file_buffer);
-                        http_message(clientsocket, 200, 1, date, "text", file_buffer);
+                        http_message(clientsocket, 200, 1, date, "text", file_buffer, "");
                         free(file_buffer);
+                        free(date);
                     }
                     else if (strcmp(ext, ".jpeg") == 0)
                     {
                     }
                     else if (strcmp(ext, ".pdf") == 0)
                     {
+                        char *date = (char *)malloc(128 * sizeof(char));
+                        get_file_mod_date(get_fname, date);
+
+                        // FILE *pdf_file = fopen(get_fname, "rb");
+
+                        // fseek(pdf_file, 0L, SEEK_END);
+                        // int size = ftell(pdf_file);
+                        // rewind(pdf_file);
+
+                        //char *file_buffer = (char *)malloc(size + 1);
+
+                        //fread(file_buffer, size, 1, pdf_file);
+
+                        // printf("PDF BUFFER: %s\n\n", file_buffer);
+
+                        http_message(clientsocket, 200, 1, date, "pdf", "0", get_fname);
+
+                        //fclose(pdf_file);
+                        free(date);
+                        //free(file_buffer);
                     }
                     else
                     {
-                        http_message(clientsocket, 501, 1, "", "html", "<html><body><h1>File type not supported.</h1></body></html>");
+                        http_message(clientsocket, 501, 1, "", "html", "<html><body><h1>File type not supported.</h1></body></html>", "");
                     }
                 }
 
@@ -316,7 +371,7 @@ void *recv_msg(void *arg)
                 else
                 {
                     // printf("File not found.\n");
-                    http_message(clientsocket, 404, 1, "last_modified", "html", "");
+                    http_message(clientsocket, 404, 1, "last_modified", "html", "", "");
                 }
             }
         }
@@ -324,7 +379,7 @@ void *recv_msg(void *arg)
         /* Not implemented. */
         else
         {
-            http_message(clientsocket, 501, 1, "", "", "");
+            http_message(clientsocket, 501, 1, "", "", "", "");
         }
     }
 
