@@ -65,6 +65,7 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
     char *curr_time = (char *)malloc(sizeof(char) * 128);
     int tmp_len = 0;
     char len[16];
+    char *pdf_contents = (char *)malloc(sizeof(char) * 7000);
     FILE *pdf;
 
     if (code == 200)
@@ -109,27 +110,18 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
 
     else if (strcmp(con_type, "pdf") == 0)
     {
-        printf("Here 0\n");
-
         content_type = "application/pdf\r\n";
-
-        printf("Here 1\n");
 
         pdf = fopen(fname, "rb");
 
-        printf("Here 2\n");
-
         fseek(pdf, 0L, SEEK_END);
 
-        printf("Here 3\n");
         int size = ftell(pdf);
-        printf("Here 5\n");
         rewind(pdf);
-        printf("Here 6\n");
         sprintf(len, "%d", size);
-        printf("Here 7\n");
+        fread(pdf_contents, size + 1, 1, pdf);
+        //printf("PDF FILE:\n%s\n\n", pdf_contents);
         fclose(pdf);
-        printf(">>>PDF SIZE: %s\n", len);
     }
 
     get_current_time(curr_time);
@@ -156,7 +148,7 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
 
     if (strcmp(con_type, "pdf") == 0)
     {
-        strcat(response, "Content-Disposition: attachment; filename=");
+        strcat(response, "Content-Disposition: inline; filename=");
         strcat(response, fname);
         strcat(response, "\r\n");
     }
@@ -180,6 +172,11 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
     {
         strcat(response, print_browser);
         strcat(response, "\r\n");
+    }
+    else
+    {
+        strcat(response, pdf_contents);
+        strcat(response, "\r\n\n");
     }
 
     printf("> Response:\n%s\n\n", response);
@@ -232,6 +229,49 @@ int read_file(char *filename, char **buffer)
     return size;
 }
 
+int read_file_bytes(char *filename, char **buffer, char *dir)
+{
+
+    /** The number of elements in the file. */
+    int size = 0;
+
+    if (access(filename, F_OK) == -1)
+    {
+        fprintf(stderr, "\nThe file '%s' cannot be found "
+                        "or does not exist.\n\n",
+                filename);
+        return -1;
+    }
+    else
+    {
+        /** Calculate file size, provided by Professor Woodring */
+        struct stat st;
+        stat(filename, &st);
+        size = st.st_size;
+
+        **buffer = (char)malloc(size * sizeof(char));
+        if (buffer == NULL)
+        {
+            fprintf(stderr, "\nMemory allocation failed.\n");
+            return -1;
+        }
+
+        /** Open the file in read mode. */
+        FILE *in_file = fopen(filename, "rb");
+        if (in_file == NULL)
+        {
+            fprintf(stderr, "File open failed.");
+            fclose(in_file);
+            return -1;
+        }
+
+        fread(*buffer, sizeof(char), size, in_file);
+        fclose(in_file);
+    }
+
+    return size;
+}
+
 void get_file_mod_date(char *path, char *ret_str)
 {
     struct stat attr;
@@ -254,6 +294,53 @@ void get_file_mod_date(char *path, char *ret_str)
     strcpy(ret_str, format_date);
 
     free(format_date);
+}
+
+int get_file_mod_date_jpg(char *path, char *ret_str, char *mod_date)
+{
+    struct stat attr;
+    stat(path, &attr);
+    int flag = 1;
+    char *format_date = (char *)malloc(512 * sizeof(char));
+    char *temp = (char *)malloc(512 * sizeof(char));
+    // printf("Last modified time: %s", ctime(&attr.st_mtime));
+
+    memcpy(format_date, ctime(&attr.st_mtime), 3);
+    memcpy(temp, ctime(&attr.st_mtime), 3);
+    strcat(temp, "\0");
+    if (strcmp(strsep(&mod_date, ", "), temp) != 0)
+        flag = 0;
+    memcpy(format_date + 3, ", ", 2);
+    memcpy(format_date + 5, ctime(&attr.st_mtime) + 8, 2);
+    memcpy(temp, ctime(&attr.st_mtime) + 8, 2);
+    strcat(temp, "\0");
+    if (strcmp(strsep(&mod_date, " "), temp) != 0)
+        flag = 0;
+    memcpy(format_date + 7, " ", 1);
+    memcpy(format_date + 8, ctime(&attr.st_mtime) + 4, 3);
+    memcpy(temp, ctime(&attr.st_mtime) + 4, 3);
+    strcat(temp, "\0");
+    if (strcmp(strsep(&mod_date, " "), temp) != 0)
+        flag = 0;
+    memcpy(format_date + 11, " ", 1);
+    memcpy(format_date + 12, ctime(&attr.st_mtime) + 20, 4);
+    memcpy(temp, ctime(&attr.st_mtime) + 20, 4);
+    strcat(temp, "\0");
+    if (strcmp(strsep(&mod_date, " "), temp) != 0)
+        flag = 0;
+    memcpy(format_date + 16, " ", 1);
+    memcpy(format_date + 17, ctime(&attr.st_mtime) + 11, 8);
+    memcpy(temp, ctime(&attr.st_mtime) + 11, 8);
+    strcat(temp, "\0");
+    if (strcmp(strsep(&mod_date, " "), temp) != 0)
+        flag = 0;
+    memcpy(format_date + 25, " GMT\0", 5);
+
+    strcpy(ret_str, format_date);
+
+    free(format_date);
+
+    return flag;
 }
 
 void *recv_msg(void *arg)
@@ -302,6 +389,33 @@ void *recv_msg(void *arg)
                 char get_fname[strlen(startline)];
                 memcpy(get_fname, startline + FNAME_START, strlen(startline) - FNAME_START);
                 strtok(get_fname, " ");
+                char *dup;
+                char *single_line;
+
+                /* Check if requesting last modified date. */
+                // while (1)
+                // {
+                //     strcpy(startline, strsep(&line, "\n"));
+                //     printf(">> %s\n", startline);
+                //     if (strlen(startline) == 0)
+                //     {
+                //         break;
+                //     }
+                //     else
+                //     {
+                //         char *header = (char *)malloc(128 * sizeof(char));
+                //         char *mod_date = (char *)malloc(128 * sizeof(char));
+                //         char *dup = strdup(startline);
+                //         strcpy(header, strsep(&dup, ": "));
+                //         if (strcmp(header, "If-Modified-Since") == 0)
+                //         {
+                //             if (get_file_mod_date_jpg(get_fname, mod_date, dup) == 0)
+                //             {
+                //                 http_message(clientsocket, 304, 1, "", "html", "", "");
+                //             }
+                //         }
+                //     }
+                // }
 
                 /* Check if file exists. */
                 if (access(get_fname, F_OK) != -1)
@@ -337,29 +451,30 @@ void *recv_msg(void *arg)
                     }
                     else if (strcmp(ext, ".jpeg") == 0)
                     {
+                        printf("jpeg request\n");
+                        char *date = (char *)malloc(128 * sizeof(char));
+                        get_file_mod_date_jpg(get_fname, date, startline);
+                        char *file_buffer = malloc(sizeof(char) * 5000);
+                        char *dir = (char *)malloc(128 * sizeof(char));
+                        char *jpgname = (char *)malloc(128 * sizeof(char));
+                        strcpy(jpgname, get_fname);
+                        strcpy(dir, "./");
+                        strcat(dir, strsep(&jpgname, "/"));
+
+                        printf("Dir: %s\njpg: %s\n", dir, jpgname);
+
+                        chdir(dir);
+                        // FILE *jpg = fopen(jpgname, "rb");
+                        read_file_bytes(jpgname, &file_buffer, dir);
+                        chdir(getenv("HOME"));
+                        http_message(clientsocket, 200, 1, date, "jpeg", file_buffer, "");
                     }
                     else if (strcmp(ext, ".pdf") == 0)
                     {
                         char *date = (char *)malloc(128 * sizeof(char));
                         get_file_mod_date(get_fname, date);
-
-                        // FILE *pdf_file = fopen(get_fname, "rb");
-
-                        // fseek(pdf_file, 0L, SEEK_END);
-                        // int size = ftell(pdf_file);
-                        // rewind(pdf_file);
-
-                        //char *file_buffer = (char *)malloc(size + 1);
-
-                        //fread(file_buffer, size, 1, pdf_file);
-
-                        // printf("PDF BUFFER: %s\n\n", file_buffer);
-
                         http_message(clientsocket, 200, 1, date, "pdf", "0", get_fname);
-
-                        //fclose(pdf_file);
                         free(date);
-                        //free(file_buffer);
                     }
                     else
                     {
@@ -443,17 +558,17 @@ int main(int argc, char **argv)
     bind(sockfd, (struct sockaddr *)&serveraddr, sizeof(serveraddr));
     listen(sockfd, 10);
 
-    socklen_t len = sizeof(clientaddr);
-
-    int clientsocket = accept(sockfd, (struct sockaddr *)&clientaddr, &len);
-    t_args.socket = &clientsocket;
-
-    if ((status = pthread_create(&recv, NULL, recv_msg, (void *)&t_args)) != 0)
-    {
-        fprintf(stderr, "Thread create error %d: %s\n", status, strerror(status));
-        exit(1);
-    }
-
     while (1)
-        ;
+    {
+        socklen_t len = sizeof(clientaddr);
+
+        int clientsocket = accept(sockfd, (struct sockaddr *)&clientaddr, &len);
+        t_args.socket = &clientsocket;
+
+        if ((status = pthread_create(&recv, NULL, recv_msg, (void *)&t_args)) != 0)
+        {
+            fprintf(stderr, "Thread create error %d: %s\n", status, strerror(status));
+            exit(1);
+        }
+    }
 }
