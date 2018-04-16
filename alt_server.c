@@ -351,24 +351,42 @@ int get_file_mod_date_jpg(char *path, char *ret_str, char *mod_date)
 
 int check_if_mod_since(char *request, char *filename, int client_sock)
 {
-    //printf("REQUEST:\n%s\n\n", request);
+    // printf("REQUEST:\n%s\n\n", request);
+    // printf("\nFILENAME: %s\n", filename);
+    char *cp_fname = strdup(filename);
+    const char dot = '.';
+    char *ext = strrchr(cp_fname, dot);
+
+    if ((strcmp(ext, ".html") != 0) && strcmp(ext, ".txt") != 0)
+    {
+        return 0;
+    }
+
+    // printf("EXT: %s\n", ext);
 
     while (1)
     {
-        char *line = (char *)malloc(128 * sizeof(char));
+        char *line = (char *)malloc(512 * sizeof(char));
         char mod_hdr[19];
+        
+        if (request == NULL)
+        {
+            return 0;
+        }
+
         strcpy(line, strsep(&request, "\n"));
+        printf("POST\n");
         // printf("LINE: %s\n", line);
         if (strcmp(line, "") == 0)
         {
             //printf("BREAK\n\n");
             break;
         }
-        else if (strlen(line) > 46)
+        else if (strlen(line) > 48)
         {
             memcpy(mod_hdr, line, 18);
             mod_hdr[18] = '\0';
-            printf("HEADER: %s\n", mod_hdr);
+            // printf("HEADER: %s\n", mod_hdr);
             if (strcmp(mod_hdr, "If-Modified-Since:") == 0)
             {
                 printf("IF MOD SINCE\n");
@@ -396,7 +414,6 @@ int check_if_mod_since(char *request, char *filename, int client_sock)
         }
         free(line);
     }
-
     return 0;
 }
 
