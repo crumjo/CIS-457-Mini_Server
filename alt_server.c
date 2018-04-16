@@ -73,6 +73,11 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
         code_msg = "200 OK\r\n";
         print_browser = file_contents;
     }
+    else if (code == 304)
+    {
+        code_msg = "304 Not Modified\r\n";
+        print_browser = file_contents;
+    }
     else if (code == 404)
     {
         code_msg = "404 Not Found\r\n";
@@ -91,6 +96,7 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
     else
     {
         connect_msg = "close\r\n";
+        print_browser = file_contents;
     }
 
     if (strcmp(con_type, "html") == 0)
@@ -343,6 +349,57 @@ int get_file_mod_date_jpg(char *path, char *ret_str, char *mod_date)
     return flag;
 }
 
+int check_if_mod_since(char *request, char *filename, int client_sock)
+{
+    //printf("REQUEST:\n%s\n\n", request);
+
+    while (1)
+    {
+        char *line = (char *)malloc(128 * sizeof(char));
+        char mod_hdr[19];
+        strcpy(line, strsep(&request, "\n"));
+        // printf("LINE: %s\n", line);
+        if (strcmp(line, "") == 0)
+        {
+            //printf("BREAK\n\n");
+            break;
+        }
+        else if (strlen(line) > 46)
+        {
+            memcpy(mod_hdr, line, 18);
+            mod_hdr[18] = '\0';
+            printf("HEADER: %s\n", mod_hdr);
+            if (strcmp(mod_hdr, "If-Modified-Since:") == 0)
+            {
+                printf("IF MOD SINCE\n");
+                char *date_mod = (char *)malloc(32 * sizeof(char));
+                memcpy(date_mod, line + 19, 29);
+                //printf("CLIENT SIDE DATE <%s>\n", date_mod);
+
+                /* Get modified date. */
+                char *date = (char *)malloc(32 * sizeof(char));
+                get_file_mod_date(filename, date);
+
+                //printf("SERVER SIDE DATE <%s>\n", date);
+                if (strcmp(date, date_mod) == 0)
+                {
+                    printf("Date did not change.\n");
+                    http_message(client_sock, 304, 1, date, "html", "", "");
+                    //free(date_mod);
+                    //free(date);
+                    return 1;
+                }
+
+                //free(date_mod);
+                //free(date);
+            }
+        }
+        free(line);
+    }
+
+    return 0;
+}
+
 void *recv_msg(void *arg)
 {
     char *line = (char *)malloc(sizeof(char) * 5000);
@@ -389,33 +446,17 @@ void *recv_msg(void *arg)
                 char get_fname[strlen(startline)];
                 memcpy(get_fname, startline + FNAME_START, strlen(startline) - FNAME_START);
                 strtok(get_fname, " ");
-                char *dup;
-                char *single_line;
+                printf("FILENAME: %s\n", get_fname);
 
                 /* Check if requesting last modified date. */
-                // while (1)
-                // {
-                //     strcpy(startline, strsep(&line, "\n"));
-                //     printf(">> %s\n", startline);
-                //     if (strlen(startline) == 0)
-                //     {
-                //         break;
-                //     }
-                //     else
-                //     {
-                //         char *header = (char *)malloc(128 * sizeof(char));
-                //         char *mod_date = (char *)malloc(128 * sizeof(char));
-                //         char *dup = strdup(startline);
-                //         strcpy(header, strsep(&dup, ": "));
-                //         if (strcmp(header, "If-Modified-Since") == 0)
-                //         {
-                //             if (get_file_mod_date_jpg(get_fname, mod_date, dup) == 0)
-                //             {
-                //                 http_message(clientsocket, 304, 1, "", "html", "", "");
-                //             }
-                //         }
-                //     }
-                // }
+                if (access(get_fname, F_OK) != -1)
+                {
+                    if (check_if_mod_since(line, get_fname, clientsocket))
+                    {
+                        printf("NO CHANGE TO FILE\n");
+                        continue;
+                    }
+                }
 
                 /* Check if file exists. */
                 if (access(get_fname, F_OK) != -1)
@@ -429,6 +470,7 @@ void *recv_msg(void *arg)
 
                     if (strcmp(ext, ".html") == 0)
                     {
+                        // printf("HTML REQUEST\n");
                         char *date = (char *)malloc(128 * sizeof(char));
                         get_file_mod_date(get_fname, date);
                         char *file_buffer = (char *)malloc(1024 * sizeof(char));
