@@ -21,7 +21,6 @@ void get_current_time(char *ret_str)
     timeinfo = localtime(&rawtime);
 
     char *format_date = (char *)malloc(512 * sizeof(char));
-    // printf("Last modified time: %s", ctime(&attr.st_mtime));
 
     memcpy(format_date, asctime(timeinfo), 3);
     memcpy(format_date + 3, ", ", 2);
@@ -34,8 +33,6 @@ void get_current_time(char *ret_str)
     memcpy(format_date + 17, asctime(timeinfo) + 11, 8);
     memcpy(format_date + 25, " GMT\0", 5);
 
-    printf("<%s>\n", format_date);
-
     strcpy(ret_str, format_date);
 
     free(format_date);
@@ -46,7 +43,7 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
     char *response = (char *)malloc(sizeof(char) * 5000);
     char *code_msg = (char *)malloc(sizeof(char) * 24);
     char *connect_msg = (char *)malloc(sizeof(char) * 16);
-    char *print_browser = (char *)malloc(sizeof(char) * 128);
+    char *print_browser = (char *)malloc(sizeof(char) * 1024);
     char *content_type = (char *)malloc(sizeof(char) * 24);
     char *curr_time = (char *)malloc(sizeof(char) * 128);
     int tmp_len = 0;
@@ -67,10 +64,10 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
         print_browser = "<html><body><h1>501 Not Implemented.</h1></body></html>";
     }
 
-    char len[3];
+    char len[6];
     tmp_len = strlen(print_browser);
     sprintf(len, "%d", tmp_len);
-    printf("> Content Length: %s\n", len);
+    // printf("> Content Length: %s\n", len);
 
     if (connect)
     {
@@ -110,26 +107,33 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
     strcat(response, "Date: ");
     strcat(response, curr_time);
     strcat(response, "\r\n");
-    strcat(response, "Last-Modified: ");
-    strcat(response, d_last_mod);
-    strcat(response, "\r\n");
-
-    strcat(response, "Content-Length: ");
+    strcat(response, "Server: GVSU\r\n");
+    strcat(response, "Accept-Ranges: bytes\r\n");
+    strcat(response, "Connection: ");
+    strcat(response, connect_msg);
+    strcat(response, "Content-Type: ");
+    strcat(response, con_type);
+    strcat(response, "\r\nContent-Length: ");
     strcat(response, len);
     strcat(response, "\r\n");
 
-    strcat(response, "Connection: ");
-    strcat(response, connect_msg);
-
-    strcat(response, "Content-Type: ");
-    strcat(response, con_type);
-    strcat(response, "\r\n\n");
+    if (strcmp(d_last_mod, "") != 0)
+    {
+        strcat(response, "Last-Modified: ");
+        strcat(response, d_last_mod);
+        strcat(response, "\r\n\n");
+    }
+    else
+    {
+        strcat(response, "\n");
+    }
 
     strcat(response, print_browser);
+    strcat(response, "\r\n");
 
-    //printf("Message:\n-----------------\n%s\n-----------------\n", response);
+    printf("> Response:\n%s\n\n", response);
 
-    send(clientsocket, response, 5000, 0);
+    send(clientsocket, response, 7000, 0);
 
     return tmp_len;
 }
@@ -149,7 +153,6 @@ int read_file(char *filename, char **buffer)
     }
     else
     {
-
         /** Calculate file size, provided by Professor Woodring */
         struct stat st;
         stat(filename, &st);
@@ -211,10 +214,10 @@ void *recv_msg(void *arg)
     {
         recv(clientsocket, line, 5000, 0);
 
+        printf("> From Client:\n%s\n\n", line);
+
         char startline[100];
         strcpy(startline, strsep(&line, "\n"));
-
-        printf("> LINE: %s\n", startline);
 
         char cmd[4];
         memcpy(&cmd, &startline, 3);
@@ -229,7 +232,7 @@ void *recv_msg(void *arg)
             if (strcmp(file_check, " ") == 0)
             {
                 http_message(clientsocket, 200, 1, "", "html", "");
-                printf("No file requested.\n");
+                // printf("No file requested.\n");
             }
 
             /* Requesting a file. */
@@ -244,18 +247,20 @@ void *recv_msg(void *arg)
                 if (access(get_fname, F_OK) != -1)
                 {
                     /* File exists. */
-                    printf("File found.\n");
+                    // printf("File found.\n");
 
                     const char dot = '.';
                     char *ext = strrchr(get_fname, dot);
-                    printf("Extension: %s\n\n", ext);
+                    // printf("Extension: %s\n\n", ext);
 
                     if (strcmp(ext, ".html") == 0)
                     {
                         char *date = (char *)malloc(128 * sizeof(char));
                         get_file_mod_date(get_fname, date);
-                        char *file_buffer = malloc(sizeof(char));
+                        char *file_buffer = (char *)malloc(1024 * sizeof(char));
                         read_file(get_fname, &file_buffer);
+                        file_buffer[strlen(file_buffer) + 1] = '\n';
+                        printf("FILE CONTENTS: %s\n", file_buffer);
                         http_message(clientsocket, 200, 1, date, "html", file_buffer);
                         free(file_buffer);
                         free(date);
@@ -277,14 +282,14 @@ void *recv_msg(void *arg)
                     }
                     else
                     {
-                        http_message(clientsocket, 200, 1, "last modified", "html", "<html><body><h1>File type not supported.</h1></body></html>");
+                        http_message(clientsocket, 501, 1, "", "html", "<html><body><h1>File type not supported.</h1></body></html>");
                     }
                 }
 
                 /* File does not exist */
                 else
                 {
-                    printf("File not found.\n");
+                    // printf("File not found.\n");
                     http_message(clientsocket, 404, 1, "last_modified", "html", "");
                 }
             }
@@ -293,11 +298,11 @@ void *recv_msg(void *arg)
         /* Not implemented. */
         else
         {
-            http_message(clientsocket, 501, 1, "fixme", "fixme", "");
+            http_message(clientsocket, 501, 1, "", "", "");
         }
     }
 
-    printf("Exiting thread\n");
+    printf("Exiting Thread...\n");
     return arg;
 }
 
@@ -310,8 +315,6 @@ int main(int argc, char **argv)
     }
 
     int port = 8080;
-    int docroot_spec = 0;                           //check if docroot has been specified, can use in 'if' statement when choosing docroot
-    char *dir = (char *)malloc(128 * sizeof(char)); //no free for this yet
     FILE *log_file;
 
     for (int i = 1; i < argc; i++)
@@ -322,9 +325,10 @@ int main(int argc, char **argv)
         }
         else if (strcmp(argv[i], "-docroot") == 0)
         {
-            dir = argv[i + 1];
-            docroot_spec = 1;
-            printf("Using directory: %s\n", dir);
+            chdir(argv[i + 1]);
+            char cwd[1024];
+            getcwd(cwd, sizeof(cwd));
+            printf("Using directory: %s\n", cwd);
         }
         else if (strcmp(argv[i], "-logfile") == 0)
         {
