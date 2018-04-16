@@ -9,8 +9,25 @@
 #include <errno.h>
 #include <time.h>
 #include <sys/stat.h>
+#include <signal.h>
 
 #define FNAME_START 5
+
+struct thread_args
+{
+    int log_bool;
+    int *socket;
+    FILE *log_ptr;
+};
+
+struct thread_args t_args;
+
+void sigHandler(int sigNum)
+{
+    fclose(t_args.log_ptr);
+    printf("\nExiting Server...\n");
+    exit(0);
+}
 
 void get_current_time(char *ret_str)
 {
@@ -131,7 +148,7 @@ int http_message(int clientsocket, int code, int connect, char *d_last_mod, char
     strcat(response, print_browser);
     strcat(response, "\r\n");
 
-    printf("> Response:\n%s\n\n", response);
+    // printf("> Response:\n%s\n\n", response);
 
     send(clientsocket, response, 7000, 0);
 
@@ -208,13 +225,22 @@ void get_file_mod_date(char *path, char *ret_str)
 void *recv_msg(void *arg)
 {
     char *line = (char *)malloc(sizeof(char) * 5000);
-    int clientsocket = *((int *)arg);
+    //int clientsocket = *((int *)arg);
+    struct thread_args *args = arg;
+    int clientsocket = *args->socket;
 
     while (1)
     {
         recv(clientsocket, line, 5000, 0);
 
-        printf("> From Client:\n%s\n\n", line);
+        if (args->log_bool == 1)
+        {
+            fwrite(line, sizeof(char), sizeof(line) + 1, args->log_ptr);
+        }
+        else
+        {
+            printf("> From Client:\n%s\n\n", line);
+        }
 
         char startline[100];
         strcpy(startline, strsep(&line, "\n"));
@@ -231,7 +257,7 @@ void *recv_msg(void *arg)
 
             if (strcmp(file_check, " ") == 0)
             {
-                http_message(clientsocket, 200, 1, "", "html", "");
+                http_message(clientsocket, 200, 1, "", "html", "<html><body><h1>Connection Successful.</h1></body></html>");
                 // printf("No file requested.\n");
             }
 
@@ -260,7 +286,7 @@ void *recv_msg(void *arg)
                         char *file_buffer = (char *)malloc(1024 * sizeof(char));
                         read_file(get_fname, &file_buffer);
                         file_buffer[strlen(file_buffer) + 1] = '\n';
-                        printf("FILE CONTENTS: %s\n", file_buffer);
+                        // printf("FILE CONTENTS: %s\n", file_buffer);
                         http_message(clientsocket, 200, 1, date, "html", file_buffer);
                         free(file_buffer);
                         free(date);
@@ -308,14 +334,16 @@ void *recv_msg(void *arg)
 
 int main(int argc, char **argv)
 {
+    signal(SIGINT, sigHandler);
+
     if (argc > 7)
     {
         printf("Enter 3 arguments only:-p, -docroot, and/or -logfile.\n");
         return 1;
     }
-
     int port = 8080;
-    FILE *log_file;
+    struct thread_args t_args;
+    t_args.log_bool = 0;
 
     for (int i = 1; i < argc; i++)
     {
@@ -332,8 +360,17 @@ int main(int argc, char **argv)
         }
         else if (strcmp(argv[i], "-logfile") == 0)
         {
-            log_file = fopen(argv[i + 1], "w");
-            printf("Printing to logfile %s\n", argv[i + 1]);
+            t_args.log_bool = 1;
+
+            FILE *out_file = fopen(argv[i + 1], "w");
+            if (out_file == NULL)
+            {
+                fprintf(stderr, "File open failed.");
+                return -1;
+            }
+            t_args.log_ptr = out_file;
+
+            printf("Printing to logfile: %s\n", argv[i + 1]);
         }
     }
 
@@ -354,8 +391,9 @@ int main(int argc, char **argv)
     socklen_t len = sizeof(clientaddr);
 
     int clientsocket = accept(sockfd, (struct sockaddr *)&clientaddr, &len);
+    t_args.socket = &clientsocket;
 
-    if ((status = pthread_create(&recv, NULL, recv_msg, &clientsocket)) != 0)
+    if ((status = pthread_create(&recv, NULL, recv_msg, (void *)&t_args)) != 0)
     {
         fprintf(stderr, "Thread create error %d: %s\n", status, strerror(status));
         exit(1);
